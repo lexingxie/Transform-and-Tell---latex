@@ -1,0 +1,145 @@
+\documentclass[10pt,twocolumn,letterpaper]{article}
+
+\usepackage{cvpr}
+\usepackage{times}
+\usepackage{epsfig}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+% Include other packages here, before hyperref.
+
+% If you comment hyperref and then uncomment it, you should delete
+% egpaper.aux before re-running latex.  (Or just hit 'q' on the first latex
+% run, let it finish, and you should be clear).
+\usepackage[pagebackref=true,breaklinks=true,letterpaper=true,colorlinks,bookmarks=false]{hyperref}
+
+\newcommand{\rev}[1]{{\color{blue}{#1}}}
+\newcommand{\eat}[1]{{}}
+
+%%%%%%%%% PAPER ID  - PLEASE UPDATE
+\def\cvprPaperID{7245} % *** Enter the CVPR Paper ID here
+\def\httilde{\mbox{\tt\raisebox{-.5ex}{\symbol{126}}}}
+
+\begin{document}
+
+%%%%%%%%% TITLE - PLEASE UPDATE
+\title{Transform and Tell: Entity-aware News Image Captioning}  % **** Enter the paper title here
+
+\maketitle
+\thispagestyle{empty}
+
+
+%%%%%%%%% BODY TEXT - ENTER YOUR RESPONSE BELOW
+
+We thank the reviewers for their insightful feedback.
+
+\section{Reviewer 1}
+
+\begin{quote}
+\textit{The split of the dataset into subsets based on chronological ranges is
+not convincing...all subsets should be defined by randomly sampling over the
+whole dataset.}
+\end{quote}
+As mentioned in Section 4, we did use the original random split for the
+GoodNews dataset~\cite{Biten2019GoodNews} to ensure a fair comparison with
+existing work. In contrast, we chose a chronological split for the new
+NYTimes800K dataset because this allows us to test the performance on novel
+news events, which might be important in a deployment scenario. This is also a
+standard way to split time series data.
+
+\eat{As we wrote in Section 4 of the paper, splitting our NYTimes800K dataset by
+chronological range is the standard way to split time series data since it
+allows us to see how well the model can handle the covariate shift, if there is
+any. Furthermore, for the GoodNews dataset, we kept the original random
+split used by \cite{Biten2019GoodNews}. Thus in Table 3, we can see the results
+using both the random split (on GoodNews) and the chronological split (on
+NYTimes800K).}
+
+% In addition, we can calculate more reliable statistics (e.g. recall) of rare
+% proper nouns, since we observed that in our chronological split, there is a
+% higher number of proper nouns that appear in the test but not in the training
+% set, compared to random splitting.
+
+\begin{quote}\textit{It would have been better to include various sources (and
+styles) or articles.}
+\end{quote}
+Our dataset contains metadata such as article topic (e.g. sports, food, arts)
+and keywords, so some style information was collected. We leave the
+construction of a dataset that accounts for sources other than The New York
+Times for future works. Our dataset is nonetheless the largest news image
+captioning dataset to date.
+
+\begin{quote}\textit{It is not clear in the paper and in table 3 whether the
+results reported over GoodNews are based on a model trained solely on the
+GoodNews dataset or over the new NYTimes800K dataset.}
+\end{quote}
+The results reported over GoodNews are based on a model trained solely on
+GoodNews, using the original random split of \cite{Biten2019GoodNews} for
+easier comparison to the previous state of the art. We will clarify this in the
+text.
+
+
+\begin{quote}\textit{In the GoodNews article there were certain human
+evaluations performed - it would be highly advised to include a qualitative
+analysis, with human evaluation over a subset of the dataset.}
+\end{quote}
+Although we did not perform our own human evaluation, the human baseline
+provided by \cite{Biten2019GoodNews} still applies to our model since we use the
+same dataset and split. As measured by average BLEU-4, ROUGE, and CIDEr, our
+model generates captions closer to the ground truth than the (untrained) human
+subjects in \cite{Biten2019GoodNews}.
+
+%------------------------------------------------------------------------
+\section{Reviewer 4}
+
+\begin{quote}\textit{While achieving SOTA performance, the contributed tech
+novelty is incremental, like the combination of the newly proposed techniques.}
+\end{quote}
+The goal of our paper is show that by using a carefully selected novel
+combination of the latest techniques drawn from multiple sub-fields within
+machine learning, we are able to set a new SOTA for news image captioning.
+
+\eat{
+We do not claim to have invented a new technique. The goal of this paper is to
+show that a careful combination of the latest techniques is enough to set a
+very strong SOTA for the news image captioning task.
+}
+
+\begin{quote}\textit{Adding the ablation experiment like, validating the
+effectiveness of multi-head attention (using or not and the influence of head
+number) and study on different number of transformer blocks, will be better.}
+\end{quote}
+We conducted ablation studies on the major components such as the weights from
+RoBERTa embeddings, the face attention module, and the transformer decoder as a
+whole (compared to LSTM). The design of the transformer block itself is based
+on previous transformer works so in this study we decided not to include
+parameter searches over the number of transformer blocks or attention heads.
+
+%------------------------------------------------------------------------
+\section{Reviewer 5}
+
+\begin{quote}\textit{First, since the authors have already used FaceNet to
+detect faces in the image, why not use the detected regions for the vector
+representations of the images like~\cite{Anderson2017BottomUpAT}}
+\end{quote}
+We focus on faces because they are the most frequent type of visual information
+in news images. Adding more specialized object detection and localization in
+addition to ResNet-152 and FaceNet might be useful.
+
+\begin{quote}\textit{How to make sure the News Image Captioning task will not
+be degraded to a simple article summarization task?}
+\end{quote}
+In Table 3, we showed that adding face attention improves the results,
+especially the recall and precision of people's names. The generated captions
+shown in Figure 4 also indicate that our models can capture relevant visual
+features in the image. Running an ablation study where we remove the image and
+faces from the inputs would also be helpful.
+
+
+{\small
+\bibliographystyle{ieee}
+\bibliography{rebuttal}
+}
+
+\end{document}

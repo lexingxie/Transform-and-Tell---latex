@@ -1,0 +1,250 @@
+% !TEX root = main.tex
+
+\section{The Transform and Tell Model}
+
+Our model consists of a set of pretrained encoders and a decoder, as
+illustrated in Figure \ref{fig:model}. The encoders
+(Section~\ref{ssec:encoder}) generate high-level vector representations of the
+images, faces, objects, and article text. The decoder
+(Section~\ref{ssec:decoder}) attends over these representations to generate a
+caption at the sub-word level.
+
+\subsection{Encoders}
+\label{ssec:encoder}
+
+\noindent\textbf{Image Encoder:} An overall image representation is obtained
+from a ResNet-152~\cite{He2016ResNet} model pre-trained on ImageNet. We use the
+output of the final block before the pooling layer as the image representation.
+This is a set of 49 different vectors $\bx^I_{i} \in \mathbb{R}^{2048}$ where
+each vector corresponds to a separate image patch after the image is divided
+into equally-sized 7 by 7 patches. This gives us the set $\bX^I = \{\bx^I_{i}
+\in \mathbb{R}^{D^I}\}_{i=1}^{M^I}$, where $D^I = 2048$ and $M^I = 49$ for
+ResNet-152. Using this representation allows the decoder to attend to different
+regions of the image, which is known to improve performance in other image
+captioning tasks~\cite{Xu2015ShowAA} and has been widely adopted.
+
+\noindent\textbf{Face Encoder:} We use MTCNN~\cite{Zhang2016JointFD} to detect
+face bounding boxes in the image. We then select up to four faces since the
+majority of the captions contain at most four people's names (see
+Section~\ref{sec:dataset}). A vector representation of each face is obtained by
+passing the bounding boxes to FaceNet~\cite{Schroff2015FaceNetAU}, which was
+pre-trained on the VGGFace2 dataset~\cite{Cao2017VGGFace2AD}. The resulting set
+of face vectors for each image is
+$\bX^{F} = \{\bx^F_{i} \in \mathbb{R}^{D^F}\}_{i=1}^{M^F}$, where $D^F = 512$ for FaceNet and $M^F$ is the
+number of faces. If there are no faces in the image, $\bX^{F}$ is an empty set.
+
+Even though the faces are extracted from the image, it is useful to consider
+them as a separate input domain. This is because a specialized face embedding
+model is tuned for identifying people and thus can help the
+decoder to generate more accurate named entities.
+
+%them to be a separate
+%input domain since face bounding boxes are extracted as a pre-processing step
+%and we use a specialised model to encode features from each bounding box.
+
+\eat{We then select the top $M$ faces and feed them through a
+FaceNet model~\cite{Schroff2015FaceNetAU}, pretrained on the VGGFace2 dataset
+\cite{Cao2017VGGFace2AD}, to obtain a face embedding $\bx_{F} =
+   \{\bx_{F,i} \in \mathbb{R}^{512}\}_{i=0}^M$.}
+
+\noindent\textbf{Object Encoder:} We use YOLOv3~\cite{Redmon2018YOLOv3AI} to
+detect object bounding boxes in the image. We filter out objects with a
+confidence less than 0.3 and select up to 64 objects with the highest
+confidence scores to feed through a ResNet-152 pretrained on ImageNet. In
+contrast to the image encoder, we take the output after the pooling layer as
+the representation for each object. This gives us a set of object vectors
+$\bX^{O} = \{\bx^O_{i} \in \mathbb{R}^{D^O}\}_{i=1}^{M^O}$, where $D^O = 2048$
+for ResNet-152 and $M^O$ is the number of objects.
+
+\noindent\textbf{Article Encoder:} To encode the article text we use
+RoBERTa~\cite{Liu2019RoBERTaAR}, a recent improvement over the popular
+BERT~\cite{Devlin2019BERT} model. RoBERTa is a pretrained language
+representation model providing contextual embeddings for text. It consists of
+24 layers of bidirectional transformer blocks.
+% It is a more carefully trained BERT~\cite{Devlin2019BERT} model.
+
+Unlike GloVe~\cite{Pennington2014Glove} and word2vec
+\cite{Mikolov2013DistributedRO} embeddings, where each word has exactly one
+representation, the bidirectionality and the attention mechanism in the
+transformer allow a word to have different vector representations depending on
+the surrounding context.
+
+The largest GloVe model has a vocabulary size of 1.2 million. Although this is
+large, many rare names will still get mapped to the unknown token. In contrast,
+RoBERTa uses BPE~\cite{Sennrich2015NeuralMT,Radford2019LanguageMA} which can
+encode any word made from Unicode characters. In BPE, each word is first broken
+down into a sequence of bytes. Common byte sequences are then merged using a
+greedy algorithm. Following \cite{Radford2019LanguageMA},
+our vocabulary consists of 50K most common byte sequences.
+
+Inspired by Tenney \etal~\cite{Tenney2019BertRT} who showed that different
+layers in BERT represent different steps in the traditional NLP pipeline, we
+mix the RoBERTa layers to obtain a richer representation. Given an input of
+length $M^T$, the pretrained RoBERTa encoder will return 25 sequences of
+embeddings, $\bG = \{\bg_{\ell i} \in \mathbb{R}^{2048} : \ell \in \{ 0, 1,...,
+24 \}, i \in \{1, 2,..., M^T\}\}$. This includes the initial uncontextualized
+embeddings and the output of each of the 24 transformer layers. We take a
+weighted sum across all layers to obtain the article embedding $\bx^A_{i}$:
+\begin{IEEEeqnarray}{lCl}
+   \bx^A_{i} &=& \sum_{\ell=0}^{24} \alpha_\ell \, \bg_{\ell i}
+\end{IEEEeqnarray}
+where $\alpha_\ell$ are learnable weights.
+
+Thus our RoBERTa encoder produces the set of token embeddings $\bX^{A} =
+\{\bx^A_{i} \in \mathbb{R}^{D^T}\}_{i=1}^{M^T}$, where $D^T = 1024$ in RoBERTa.
+
+
+\subsection{Decoder}
+\label{ssec:decoder}
+
+
+The decoder is a function that generates caption tokens sequentially. At time
+step $t$, it takes as input: the embedding of the token generated in the
+previous step, $\bz_{0t} \in \mathbb{R}^{D^E}$ where $D^E$ is the hidden size;
+embeddings of all other previously generated tokens $\bZ_{0<t} = \{\bz_{00},
+\bz_{01}, ..., \bz_{0t-1} \}$; and the context embeddings $\bX^I$, $\bX^A$,
+$\bX^F$, and $\bX^O$ from the encoders. These inputs are then fed through $L$
+transformer blocks:
+\begin{IEEEeqnarray}{lCl}
+   \bz_{1t} &=& \text{Block}_1 (\bz_{0t} | \bZ_{0<t}, \bX^I, \bX^A, \bX^F, \bX^O) \\
+   \bz_{2t} &=& \text{Block}_2 (\bz_{1t} | \bZ_{1<t}, \bX^I, \bX^A, \bX^F, \bX^O) \\
+   &\dots& \notag \\
+   \bz_{Lt} &=& \text{Block}_L (\bz_{L-1t} | \bZ_{L-1<t}, \bX^I, \bX^A, \bX^F, \bX^O)
+\end{IEEEeqnarray}
+where $\bz_{\ell t}$ is the output of the $\ell$\textsuperscript{th}
+transformer block at time step $t$. The final block's output $\bz_{Lt}$ is used
+to estimate $p(y_t)$, the probability of generating the $t$th token in the
+vocabulary via adaptive softmax~\cite{Grave2016EfficientSA}:
+\begin{IEEEeqnarray}{lCl}
+   p(y_t) &=& \text{AdaptiveSoftmax}(\bz_{Lt})
+\end{IEEEeqnarray}
+By dividing the vocabulary into three clusters based on frequency---5K, 15K,
+and 30K---adaptive softmax makes training more efficient since most of the
+time, the decoder only needs to compute the softmax over the first cluster
+containing the 5,000 most common tokens.
+
+In the following two subsections, we will describe the transformer block in
+detail. In each block, the conditioning on past tokens is achieved using
+dynamic convolutions, and the conditioning on the contexts
+is achieved using multi-head attention.
+
+% For each token in the article, We use sinusoidal positional encoding
+% \cite{Vaswani2017AttentionIA} to represent the position of each token.
+
+
+\noindent\textbf{Dynamic Convolutions:}
+Introduced by Wu \etal~\cite{Wu2018PayLA}, the goal of dynamic convolution is
+to provide a more efficient alternative to
+self-attention~\cite{Vaswani2017AttentionIA} when attending to past tokens. At
+block $\ell + 1$ and time step $t$, we have the input $\bz_{\ell t} \in
+\mathbb{R}^{D^E}$. Given kernel size $K$ and
+$H$ attention heads, for each head $h \in \{1, 2, ..., H\}$, we first project
+the current and last $K-1$ steps using a feedforward layer to obtain $\bz_{\ell
+h j}' \in \mathbb{R}^{D^E/H}$:
+\begin{IEEEeqnarray}{lCl}
+   \bz_{\ell h j}' &=& \text{GLU}(\bW^Z_{\ell h} \, \bz_{\ell j} + \bb^Z_{\ell h})
+\end{IEEEeqnarray}
+for $j \in \{t - K + 1,t - K + 2,...,t\}$. Here GLU is the gated linear unit
+activation function~\cite{Dauphin2017GLU}. The output of each head's dynamic
+convolution is the weighted sum of these projected values:
+\begin{IEEEeqnarray}{lCl}
+   \tz_{\ell h t} &=& \sum_{j=t - K + 1}^{t} \gamma_{\ell hj} \, \bz_{\ell h j}'
+\end{IEEEeqnarray}
+where the weight $\gamma_{\ell hj}$ is a linear projection of the input (hence
+the term ``dynamic"),
+followed by a softmax over the kernel window:
+\begin{IEEEeqnarray}{lCl}
+   \gamma_{\ell hj} &=& \text{Softmax} \left( (\bw^\gamma_{ \ell h})^T \,
+   \bz'_{\ell h j} \right)
+\end{IEEEeqnarray}
+The overall output is the concatenation of all the head outputs, followed by a
+feedforward with a residual connection and layer
+normalization~\cite{Ba2016LayerN}, which does a z-score normalization across
+the feature dimension (instead of the batch dimension as in batch
+normalization~\cite{Ioffe2015BatchNorm}):
+\begin{IEEEeqnarray}{lCl}
+   \tz_{\ell t} &=& [ \tz_{\ell 1 t}, \tz_{\ell 2 t},..., \tz_{\ell H t} ] \\
+   \bd_{\ell t} &=& \text{LayerNorm}\left( \bz_{\ell t} +
+   \bW^{\tz}_{\ell} \, \tz_{\ell t} + \bb^{\tz}_{\ell} \right)
+\end{IEEEeqnarray}
+The output $\bd_{\ell t}$ can now be used to attend over the context embeddings.
+
+% Instead of using the standard self-attention module as in current
+% state-of-the-art GPT-2 decoder~\cite{Radford2019LanguageMA}, we find that
+% dynamic convolutions~\cite{Wu2018PayLA} are more efficient to train.
+
+\noindent\textbf{Multi-Head Attention:}
+The multi-head attention mechanism~\cite{Vaswani2017AttentionIA} has been the
+standard method to attend over encoder outputs in transformers. In our setting,
+we need to attend over four context domains---images, text, faces, and objects.
+As an example, we will go over the image attention module, which consists
+of $H$ heads. Each head $h$ first does a linear projection of $\bd_{\ell t}$
+and the image embeddings $\bX^I$ into a query $\bq^I_{\ell h t} \in
+\mathbb{R}^{D^E/H}$, a set of keys $\bK^I_{\ell h t} = \{\bk^I_{\ell h t i}
+\in \mathbb{R}^{D^E/H} \}_{i=1}^{M^I}$, and the corresponding values
+$\bV^I_{\ell h t} = \{\bv^{I}_{\ell h t i} \in \mathbb{R}^{D^E/H}
+\}_{i=1}^{M^I}$:
+\begin{IEEEeqnarray}{lCl}
+   \bq^{I}_{\ell ht} &=& \bW^{IQ}_{ \ell h} \, \bd_{\ell t} \\
+   \bk^{I}_{\ell h i} &=& \bW^{IK}_{ \ell h} \, \bx^{I}_{ i}
+   \qquad \forall i \in \{1, 2, ..., M^I\}\\
+   \bv^{I}_{ \ell h i} &=& \bW^{IV}_{ \ell h} \, \bx^{I}_{ i}
+   \qquad \forall i \in \{1, 2, ..., M^I\}
+\end{IEEEeqnarray}
+Then the attended image for each head is the weighted sum of the values, where
+the weights are obtained from the dot product between the query and key:
+\begin{IEEEeqnarray}{lCl}
+   \lambda^{I}_{ \ell h t i} &=&\text{Softmax}\left(\bK^{I}_{\ell h} \, \bq^{I}_{ \ell ht} \right)_i\\
+   \bx^{'I}_{ \ell h t} &=& \sum_{i = 1}^{M^I}
+   \lambda^{I}_{ \ell h t i} \, \bv^{I}_{ \ell h t i}
+\end{IEEEeqnarray}
+The attention from each head is then concatenated into $\bx^{'I}_{\ell t} \in
+   \mathbb{R}^{D^E}$:
+\begin{IEEEeqnarray}{lCl}
+   \bx^{'I}_{\ell t} &=& [\tx^{I}_{\ell 1 t}, \tx^{I}_{\ell 2 t}, ...,
+      \tx^{I}_{\ell H t}]
+\end{IEEEeqnarray}
+and the overall image attention $\tx^{I}_{\ell t} \in \mathbb{R}^{D^E}$ is obtained
+after adding a residual connection and layer normalization:
+\begin{IEEEeqnarray}{lCl}
+   \tx^{I}_{ \ell t} &=& \text{LayerNorm}(\bd_{\ell t} + \bx^{'I}_{\ell t})
+\end{IEEEeqnarray}
+We use the same multi-head attention mechanism (with different weight matrices)
+to obtain the attended article $\tx^A_{ \ell t}$, faces $\tx^F_{\ell t}$, and
+objects $\tx^O_{\ell t}$. These four are finally concatenated and fed through a
+feedforward layer:
+\begin{IEEEeqnarray}{lCl}
+   \tx^C_{\ell t} &=& [\tx^{I}_{ \ell t}, \tx^A_{\ell t}, \tx^F_{\ell t}, \tx^O_{\ell t}] \\
+   \tx^{C'}_{\ell t} &=& \bW^C_{\ell} \, \tx^C_{\ell t} + \bb^C_{\ell} \\
+   \tx^{C''}_{\ell t} &=& \text{ReLU}(\bW^{C'}_{\ell} \, \tx^{C'}_{\ell t} + \bb^{C'}_{\ell} )\\
+   \bz_{\ell + 1\,t} &=& \text{LayerNorm}(\tx^{C'}_{\ell t} + \bW^{C''}_{\ell} \,
+   \tx^{C''}_{\ell t} + \bb^{C''}_{\ell})
+\end{IEEEeqnarray}
+The final output $\bz_{\ell + 1\,t} \in \mathbb{R}^{D^E}$ is used as the input
+to the next transformer block.
+
+% \noindent\textbf{Copying with Multi-headed Attention:}
+% Inspired by pointer-generator networks~\cite{See2017GetTT}, we introduce a
+% copying mechanism using multi-head attention. This consists of two parts, the
+% probability of copying $p(c)$ and the $\text{CopyMechanism}(z_{Lt}, \bX^A)$. We
+% define $p(c)$ as the probability of the \textit{t}th token being part of a
+% named entity. It is computed by feeding $\bz_{Lt}$ through a multi-head
+% attention module followed by a fully-connected layer. The
+% $\text{CopyMechanism}(z_{Lt}, \bX^A)$ is implemented as just the first part of
+% a multi-head attention module, computing softmax weights $\lambda_i$ over the
+% article tokens. These softmax weights $\lambda_i$ can be interpreted as the
+% probability of copying the $i$th token in the article. Both parts are trained
+% with full supervision as described in Section~\ref{ssec:training_details}.
+
+% \eat{ with input consisting of the top layer of the decoder
+% $\bz_{5t}$ and the article embeddings $\bX^A$. The output is a categorical
+% distribution (via softmax) over article tokens which can be interpreted the
+% probability of copying the $i$th token in the article.}
+
+% \eat{
+% We use the final layer output
+% $\bz_{5t}$ and the article embeddings $\bX^A$ as inputs to the multi-head
+% attention module. Unlike~\ref{ssection:attn}, we only need to compute the
+% softmax weights $\lambda_i$ (and not the weighted sum of the values). We
+% interpret each $\lambda_i$ as the probability of copying $i$th token in the
+% article.}

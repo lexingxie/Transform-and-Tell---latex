@@ -1,0 +1,26 @@
+.DS_Store
+*.brf
+*.pdf
+*.synctex.gz
+captioning/main.aux
+captioning/main.bbl
+captioning/main.blg
+captioning/main.fdb_latexmk
+captioning/main.fls
+captioning/main.log
+
+!comments/*
+!captioning/figures/*.pdf
+
+# Latex
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.run.xml
+*.synctex.gz
+*-blx.bib

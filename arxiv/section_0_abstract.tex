@@ -1,0 +1,29 @@
+% !TEX root = main.tex
+
+%%%%%%%%% ABSTRACT
+\begin{abstract}
+    We propose an end-to-end model which generates captions for images embedded
+    in news articles. News images present two key challenges: they rely on
+    real-world knowledge, especially about named entities; and they typically
+    have linguistically rich captions that include uncommon words. We address
+    the first challenge by associating words in the caption with faces and
+    objects in the image, via a multi-modal, multi-head attention mechanism. We
+    tackle the second challenge with a state-of-the-art transformer language
+    model that uses byte-pair-encoding to generate captions as a sequence of
+    word parts. On the GoodNews dataset~\cite{Biten2019GoodNews}, our model
+    outperforms the previous state of the art by a factor of four in CIDEr
+    score ($13 \rightarrow 54$). This performance gain comes from a unique
+    combination of language models, word representation, image embeddings, face
+    embeddings, object embeddings, and improvements in neural network design.
+    We also introduce the NYTimes800k dataset which is 70\% larger than
+    GoodNews, has higher article quality, and includes the locations of images 
+    within articles as an additional contextual cue.
+\end{abstract}
+
+
+%  \eat{By combining the
+%     transformer architecture, byte-pair encoding,
+%     and pretrained embeddings from three different modalities
+%     (RoBERTa for text, ResNet-152 for images, and FaceNet for faces), our
+%     system is able to describe an image with specific named entities mentioned
+%     in the article.}
